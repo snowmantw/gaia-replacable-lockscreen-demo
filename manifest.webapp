@@ -1,0 +1,30 @@
+{
+  "name": "replacable-lockscreen",
+  "description": "Customizable LockScreen",
+  "developer": {
+    "name": "Greg Weng"
+  },
+  "locales": {
+    "en-US": {
+      "name": "Replaceable LockScreen",
+      "description": "Customizable LockScreen"
+    }
+  },
+  "default_locale": "en-US",
+  "package_path": "application.zip",
+  "role": "addon",
+  "type": "certified",
+  "customizations": [
+    {
+      "filter": "app://system.gaiamobile.org",
+      "scripts": [
+        "dist/main.js"
+      ]
+    }
+  ],
+  "icons": {
+    "128": "/icons/128.png",
+    "256": "/icons/256.png",
+    "512": "/icons/512.png"
+  }
+}
