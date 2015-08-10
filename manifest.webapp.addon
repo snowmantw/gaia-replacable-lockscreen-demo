@@ -1,0 +1,31 @@
+{
+  "name": "Foxnob",
+  "description": "Foxnob: customable LockScreen",
+  "developer": {
+    "name": "Greg Weng"
+  },
+  "locales": {
+    "en-US": {
+      "name": "Foxnob",
+      "description": "Customizable LockScreen"
+    }
+  },
+  "default_locale": "en-US",
+  "package_path": "application.zip",
+  "role": "addon",
+  "type": "certified",
+  "customizations": [
+    {
+      "filter": "app://system.gaiamobile.org",
+      "scripts": [
+        "dist/main.js",
+        "lib/hammer.js"
+      ]
+    }
+  ],
+  "icons": {
+    "128": "/icons/128.png",
+    "256": "/icons/256.png",
+    "512": "/icons/512.png"
+  }
+}
