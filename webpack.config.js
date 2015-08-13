@@ -1,9 +1,9 @@
 'use strict';
 var path = require('path');
 module.exports = {
-  entry: './src/main.js',
+  entry: './src/Startup.js',
   devtool: 'inline-source-map',
-  output: { filename: 'main.js' },
+  output: { path: __dirname + '/dist', filename: 'main.js' },
   resolve: { root: path.resolve('./') },
   module: {
     loaders: [

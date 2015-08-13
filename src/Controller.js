@@ -1,12 +1,15 @@
 'use strict';
 import { GestureController } from 'src/GestureController.js';
+import { Store } from 'src/Store.js';
 export function Controller() {}
 Controller.prototype.start = function() {
+  this._store = new Store();
+  this._configFrame = null;
   console.log('>>>> try to launch addon');
   // TODO: 1. if we have settings to know how many LSW could be injected,
   //          read it here.
   //       2. some dummy function need to be filled later.
-  this.mainPromise = new Promise((resolve, reject) => {
+  this.queue = new Promise((resolve, reject) => {
       this.elements = {};
       this.originals = {};
       // TODO: should read config here
@@ -46,31 +49,94 @@ Controller.prototype.setupGesture = function() {
   });
 };
 
+Controller.prototype.handleEvent = function(evt) {
+  switch (evt.type) {
+    case 'mozbrowserlocationchange':
+      // TODO: can preview the UI before apply that:
+      // add a field in the hash.
+      console.log('>>>>>>> locationchanged', evt);
+      this.next(this.onScreenChange.bind(this, evt.detail));
+      break;
+  }
+};
+
+
+Controller.prototype.next = function(steps) {
+  if (!Array.isArray(steps)) {
+    steps = [steps];
+  }
+  var stepPromises = steps.map((step) => {
+    return step();
+  });
+  this.queue = this.queue.then(() => {
+    return Promise.all(stepPromises);
+  }).catch(console.error.bind(console));
+  return this;
+};
+
+Controller.prototype.onScreenChange = function(url) {
+  console.log('>>>>>>> locationchanged');
+  var hash = url.replace(/^.*#/, '');
+  var parsed = hash.replace(/screenname-/, '');
+  console.log('>>>>>> url:', url, hash, parsed);
+  if ('' !== hash) {
+    var screenurl = decodeURIComponent(parsed);
+    var local = (null === screenurl.match(/^http/));
+    this._store.submitDefault(screenurl, local);
+    console.log('>>>> launch the new screen', screenurl);
+    this.elements.browserContainer.removeChild(this._configFrame);
+    this.loadDefault();
+  }
+};
+
 Controller.prototype.onOpenConfig = function() {
   var iframe = document.createElement('iframe');
+  this._configFrame = iframe;
   iframe.style.zIndex = '16';
   iframe.style.position = 'relative';
-  iframe.id = 'replacable-config';
+iframe.style.width = '250px';
+iframe.style.height = '350px';
+  iframe.id = 'foxnob-config';
   iframe.setAttribute('mozbrowser', 'true');
   iframe.setAttribute('remote', 'true');
-  iframe.src = 'https://foxknob.herokuapp.com/';
+  iframe.src = 'https://foxknob.herokuapp.com/#';
   this.elements.browserContainer.appendChild(iframe);
-  iframe.addEventListener('mozbrowserlocationchange', function(evt) {
-    var url = evt.detail;
-    var hash = url.replace(/^.*#/, '');
-    console.log('>>>>>> url:', url, hash);
-    this.elements.browserContainer.removeChild(iframe);
-  });
+  iframe.addEventListener('mozbrowserlocationchange', this);
+};
+
+Controller.prototype.createScreenFrame = function() {
+  var iframe = document.createElement('iframe');
+  iframe.id = 'foxnob-activated-screen';
+  iframe.setAttribute('mozbrowser', 'true');
+  iframe.setAttribute('remote', 'true');
+  return iframe;
+};
+
+Controller.prototype.promptNoConnection = function(url) {
+  console.error('No Internet Connection for the Screen: ', url);
 };
 
 Controller.prototype.loadDefault = function() {
-  var iframe = document.createElement('iframe');
-  iframe.id = 'activated-lockscreen-content';
-  iframe.setAttribute('mozbrowser', 'true');
-  iframe.setAttribute('remote', 'true');
-  iframe.src = 'https://www.google.com';
-  this.elements.browserContainer.appendChild(iframe);
-  //iframe.src = 'app://music.gaiamobile.org/manifest.webapp';
+  var { url, manifest } = this._store.fetchDefault('foxnob-default');
+  var iframe = this.createScreenFrame();
+  console.log('>>>> want to load default: ', url, manifest);
+  // Remote. Need internet.
+  if (!manifest) {
+    this.assertConnection().then(() => {
+      iframe.src = url;
+      this.elements.browserContainer.appendChild(iframe);
+    }).catch(() => {
+      this.promptNoConnection(url);
+    });
+  } else {
+    iframe.src = url;
+    this.elements.browserContainer.appendChild(iframe);
+  }
+};
+
+Controller.prototype.assertConnection = function() {
+  // TODO
+  return Promise.resolve();
 };
 
 Controller.prototype.loadDummyScreenLeft = function() {
@@ -148,6 +214,7 @@ Controller.prototype.onRightLockScreen = function() {
   this.loadDummyScreenRight();
 };
 
+/*
 Controller.prototype.handleEvent = function(e) {
   // debug at air
   // var MANIFEST_URL = 'app://d8dc60c0-a7b0-014b-8659-ae57ca7f5fca/manifest.webapp';
@@ -160,16 +227,17 @@ Controller.prototype.handleEvent = function(e) {
   switch(e.type) {
     case 'enabledstatechange':
       if (e.application.enabled) {
-        this.mainPromise = this.mainPromise.then(this.onEnable.bind(this));
+        this.next(this.onEnable.bind(this));
       } else {
-        this.mainPromise = this.mainPromise.then(this.onDisable.bind(this));
+        this.next(this.onDisable.bind(this));
       }
       break;
     case 'uninstall':
-      this.mainPromise = this.mainPromise.then(this.onUninstall.bind(this));
+      this.next(this.onUninstall.bind(this));
       break;
   }
 };
+*/
 
 Controller.prototype.onUninstall = function() {
   navigator.mozApps.mgmt.removeEventListener('enabledstatechange', this);
