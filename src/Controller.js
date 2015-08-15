@@ -7,6 +7,7 @@ Controller.prototype.start = function() {
   this._waitingTimer = null;
   this._store = new Store();
   this._configFrame = null;
+  this._contentFrame = null;
   console.log('>>>> try to launch addon');
   // TODO: 1. if we have settings to know how many LSW could be injected,
   //          read it here.
@@ -59,17 +60,30 @@ Controller.prototype.handleEvent = function(evt) {
       console.log('>>>>>>> locationchanged', evt);
       var url = evt.detail;
       var hash = url.replace(/^.*#/, '');
-      var parsed = hash.replace(/screenname-/, '');
-      console.log('>>>>>> url:', url, hash, parsed);
-      if ('' !== parsed) {
-        this.next(this.onScreenChange.bind(this, parsed));
-      } else {
+      var screenNameParsed = hash.match(/screenname-(.*)/);
+      var commandParsed = hash.match(/command-(.*)/);
+      console.log('>>>>>> url:', url, hash, screenNameParsed, commandParsed);
+      if (null !== screenNameParsed) {
+        this.next(this.onScreenChange.bind(this, screenNameParsed[1]));
+      } else if(null !== commandParsed) {
+        this.next(this.onConfigCommand.bind(this, commandParsed[1]));
+      } else {  // loaded.
         this.next(this.onConfigOpened.bind(this));
       }
       break;
   }
 };
 
+Controller.prototype.onConfigCommand = function(command) {
+  if ('cancel' === command) {
+    if (null !== this._configFrame) {
+      this.elements.browserContainer.removeChild(this._configFrame);
+      this._configFrame = null;
+    } else {
+      console.log('>>>>>>> cant remove it');
+    }
+  }
+};
 
 Controller.prototype.next = function(steps) {
   if (!Array.isArray(steps)) {
@@ -100,7 +114,14 @@ Controller.prototype.onScreenChange = function(parsed) {
       .then((appinfo) => {
         if (appinfo) {
           this._store.submitDefault(name, local, appinfo);
-          this.elements.browserContainer.removeChild(this._configFrame);
+          if (this._configFrame) {
+            this.elements.browserContainer.removeChild(this._configFrame);
+            this._configFrame = null;
+          }
+          if (this._contentFrame) {
+            this.elements.browserContainer.removeChild(this._contentFrame);
+            this._contentFrame = null;
+          }
           this.loadDefault();
         } else {
           console.error('No such content: ', screenurl);
@@ -108,7 +129,14 @@ Controller.prototype.onScreenChange = function(parsed) {
       });
   } else {
     this._store.submitDefault(screenurl, local);
-    this.elements.browserContainer.removeChild(this._configFrame);
+    if (this._configFrame) {
+      this.elements.browserContainer.removeChild(this._configFrame);
+      this._configFrame = null;
+    }
+    if (this._contentFrame) {
+      this.elements.browserContainer.removeChild(this._contentFrame);
+      this._contentFrame = null;
+    }
     this.loadDefault();
   }
 };
@@ -132,16 +160,23 @@ Controller.prototype.onOpenConfig = function() {
         });
       })
       .next(() => {
-        console.log('>>>>> open config create frame');
+        console.log('>>>>> open config create frame', this._configFrame);
+        if (this._configFrame) {
+          this.elements.browserContainer.removeChild(this._configFrame);
+          this._configFrame = null;
+        }
         this._waitingTimer =
           setTimeout(this.onWaintingScreenTimeout, this.SCREEN_TIMEOUT);
+        console.log('>>>>> set timeout');
         var iframe = this.createScreenFrame();
         iframe.classList.add('foxnob-config');
         iframe.style.zIndex = '65535';
         iframe.src = url;
         this._configFrame = iframe;
+        console.log('>>>>> append');
         this.elements.browserContainer.appendChild(iframe);
         iframe.addEventListener('mozbrowserlocationchange', this);
+        console.log('>>>>> done');
       });
 };
 
@@ -150,7 +185,7 @@ Controller.prototype.createScreenFrame = function() {
   iframe.id = 'foxnob-activated-screen';
   iframe.setAttribute('mozbrowser', 'true');
   iframe.setAttribute('remote', 'true');
-  iframe.style.position = 'relative';
+  iframe.style.position = 'fixed';
   return iframe;
 };
 
@@ -169,6 +204,7 @@ Controller.prototype.loadDefault = function() {
       iframe.style.zIndex = '1';
       iframe.style.background = 'black';
       iframe.setAttribute('src', url);
+      this._contentFrame = iframe;
       this.elements.browserContainer.appendChild(iframe);
     }).catch(() => {
       this.promptNoConnection(url);
@@ -179,6 +215,7 @@ Controller.prototype.loadDefault = function() {
     iframe.setAttribute('mozapp', manifest);
     iframe.style.background = 'black';
     iframe.style.zIndex = '1';
+    this._contentFrame = iframe;
     this.elements.browserContainer.appendChild(iframe);
   }
 };
