@@ -18,7 +18,7 @@ GestureController.prototype.start = function() {
     this.next(this.rightBinders).next(() => {console.log('>>>>>> after right');});
   });
   hammer.on('swipeup', () => {
-    console.log('^^^^^^^ up');
+    console.log('^^^^^^^ up', this.upBinders.length);
     this.next(this.upBinders).next(() => {console.log('^^^^^^^^ after up');});
   });
   this.leftBinders = [];
@@ -30,7 +30,8 @@ GestureController.prototype.start = function() {
 GestureController.prototype.setupCover = function() {
   this.cover = document.createElement('div');
   this.cover.id = 'foxnob-cover';
-  this.cover.style.background = 'rgba(0, 100, 0, 0.1)';
+  // debug color
+  //this.cover.style.background = 'rgba(0, 100, 0, 0.1)';
   this.cover.style.width =  '100%';
   this.cover.style.height = '80%';
   this.cover.style.position = 'fixed';

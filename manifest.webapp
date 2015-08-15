@@ -1,33 +1,31 @@
 {
-  "name": "FoxnobTest",
-  "description": "Gaia FoxnobTest",
-  "type": "certified",
-  "launch_path": "/index.html",
+  "name": "Foxnob",
+  "description": "Foxnob: customable LockScreen",
   "developer": {
-    "name": "The Gaia Team",
-    "url": "https://github.com/mozilla-b2g/gaia"
-  },
-  "permissions": {
-    "themeable":{},
-    "alarms":{},
-    "settings":{ "access": "readwrite" },
-    "attention":{},
-    "audio-channel-alarm":{},
-    "browser": {}
+    "name": "Greg Weng"
   },
   "locales": {
     "en-US": {
-      "name": "FoxnobTest",
-      "description": "Gaia FoxnobTest"
+      "name": "Foxnob",
+      "description": "Customizable LockScreen"
     }
   },
   "default_locale": "en-US",
+  "package_path": "application.zip",
+  "role": "addon",
+  "type": "certified",
+  "customizations": [
+    {
+      "filter": "app://system.gaiamobile.org",
+      "scripts": [
+        "dist/main.js",
+        "lib/hammer.js"
+      ]
+    }
+  ],
   "icons": {
-    "84": "/style/icons/clock_84.png",
-    "126": "/style/icons/clock_126.png",
-    "142": "/style/icons/clock_142.png",
-    "189": "/style/icons/clock_189.png",
-    "284": "/style/icons/clock_284.png"
-  },
-  "orientation": "default"
+    "128": "/icons/128.png",
+    "256": "/icons/256.png",
+    "512": "/icons/512.png"
+  }
 }

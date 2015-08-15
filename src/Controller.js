@@ -3,6 +3,8 @@ import { GestureController } from 'src/GestureController.js';
 import { Store } from 'src/Store.js';
 export function Controller() {}
 Controller.prototype.start = function() {
+  this.SCREEN_TIMEOUT = 30;
+  this._waitingTimer = null;
   this._store = new Store();
   this._configFrame = null;
   console.log('>>>> try to launch addon');
@@ -16,7 +18,7 @@ Controller.prototype.start = function() {
       resolve();
     })
 //    .then(this.setupEvents.bind(this)).then(this.label.bind(this, '>>> launching'))
-//    .then(this.waitLockScreen.bind(this)).then(this.label.bind(this, '>>> wait lockscreen done'))
+    .then(this.waitLockScreen.bind(this)).then(this.label.bind(this, '>>> wait lockscreen done'))
     .then(this.setupElements.bind(this)).then(this.label.bind(this, '>>> set elements done'))
     .then(this.setupGesture.bind(this)).then(this.label.bind(this, '>>> set gesture done'))
 //    .then(this.loadDefault.bind(this)).then(this.label.bind(this, '>>> load default one'))
@@ -55,7 +57,15 @@ Controller.prototype.handleEvent = function(evt) {
       // TODO: can preview the UI before apply that:
       // add a field in the hash.
       console.log('>>>>>>> locationchanged', evt);
-      this.next(this.onScreenChange.bind(this, evt.detail));
+      var url = evt.detail;
+      var hash = url.replace(/^.*#/, '');
+      var parsed = hash.replace(/screenname-/, '');
+      console.log('>>>>>> url:', url, hash, parsed);
+      if ('' !== parsed) {
+        this.next(this.onScreenChange.bind(this, parsed));
+      } else {
+        this.next(this.onConfigOpened.bind(this));
+      }
       break;
   }
 };
@@ -69,39 +79,70 @@ Controller.prototype.next = function(steps) {
     return step();
   });
   this.queue = this.queue.then(() => {
-    return Promise.all(stepPromises);
+    return Promise.all(stepPromises).catch(console.error.bind(console));
   }).catch(console.error.bind(console));
   return this;
 };
 
-Controller.prototype.onScreenChange = function(url) {
-  console.log('>>>>>>> locationchanged');
-  var hash = url.replace(/^.*#/, '');
-  var parsed = hash.replace(/screenname-/, '');
-  console.log('>>>>>> url:', url, hash, parsed);
-  if ('' !== hash) {
-    var screenurl = decodeURIComponent(parsed);
-    var local = (null === screenurl.match(/^http/));
+Controller.prototype.onConfigOpened = function() {
+  if (this._waitingTimer) {
+    clearTimeout(this._waitingTimer);
+  }
+};
+
+Controller.prototype.onScreenChange = function(parsed) {
+  var screenurl = decodeURIComponent(parsed);
+  var local = (null === screenurl.match(/^http/));
+  console.log('>>>>> onScreenChange: ', parsed, local, screenurl);
+  if (local) {
+    var name = screenurl;
+    this.fromNameToInstalled(name)
+      .then((appinfo) => {
+        if (appinfo) {
+          this._store.submitDefault(name, local, appinfo);
+          this.elements.browserContainer.removeChild(this._configFrame);
+          this.loadDefault();
+        } else {
+          console.error('No such content: ', screenurl);
+        }
+      });
+  } else {
     this._store.submitDefault(screenurl, local);
-    console.log('>>>> launch the new screen', screenurl);
     this.elements.browserContainer.removeChild(this._configFrame);
     this.loadDefault();
   }
 };
 
+Controller.prototype.onWaintingScreenTimeout = function() {
+  // TODO: show failure and remove the message and cover.
+};
+
+Controller.prototype.showWaitingCover = function() {
+  console.log('>>>>>> showWaitingCover');
+};
+
 Controller.prototype.onOpenConfig = function() {
-  var iframe = document.createElement('iframe');
-  this._configFrame = iframe;
-  iframe.style.zIndex = '16';
-  iframe.style.position = 'relative';
-iframe.style.width = '250px';
-iframe.style.height = '350px';
-  iframe.id = 'foxnob-config';
-  iframe.setAttribute('mozbrowser', 'true');
-  iframe.setAttribute('remote', 'true');
-  iframe.src = 'https://foxknob.herokuapp.com/#';
-  this.elements.browserContainer.appendChild(iframe);
-  iframe.addEventListener('mozbrowserlocationchange', this);
+  console.log('>>>>>>>>> onOpenConfig');
+  var url = 'https://foxknob.herokuapp.com/#';
+  this.next(this.showWaitingCover.bind(this))
+      .next(() => {
+        console.log('>>>>>> assertConnection');
+        return this.assertConnection().catch(() => {
+          this.promptNoConnection(url);
+        });
+      })
+      .next(() => {
+        console.log('>>>>> open config create frame');
+        this._waitingTimer =
+          setTimeout(this.onWaintingScreenTimeout, this.SCREEN_TIMEOUT);
+        var iframe = this.createScreenFrame();
+        iframe.classList.add('foxnob-config');
+        iframe.style.zIndex = '65535';
+        iframe.src = url;
+        this._configFrame = iframe;
+        this.elements.browserContainer.appendChild(iframe);
+        iframe.addEventListener('mozbrowserlocationchange', this);
+      });
 };
 
 Controller.prototype.createScreenFrame = function() {
@@ -109,6 +150,7 @@ Controller.prototype.createScreenFrame = function() {
   iframe.id = 'foxnob-activated-screen';
   iframe.setAttribute('mozbrowser', 'true');
   iframe.setAttribute('remote', 'true');
+  iframe.style.position = 'relative';
   return iframe;
 };
 
@@ -123,15 +165,31 @@ Controller.prototype.loadDefault = function() {
   // Remote. Need internet.
   if (!manifest) {
     this.assertConnection().then(() => {
-      iframe.src = url;
+      console.log('>>> no manifest');
+      iframe.style.zIndex = '1';
+      iframe.style.background = 'black';
+      iframe.setAttribute('src', url);
       this.elements.browserContainer.appendChild(iframe);
     }).catch(() => {
       this.promptNoConnection(url);
     });
   } else {
-    iframe.src = url;
+    console.log('>>> with manifest');
+    iframe.setAttribute('src', url);
+    iframe.setAttribute('mozapp', manifest);
+    iframe.style.background = 'black';
+    iframe.style.zIndex = '1';
     this.elements.browserContainer.appendChild(iframe);
   }
+};
+
+Controller.prototype.fromNameToInstalled = function(name) {
+  return navigator.mozApps.mgmt.getAll()
+    .then((apps) => {
+      return apps.filter((app) => {
+        return (name === app.manifest.name);
+      })[0];
+    });
 };
 
 Controller.prototype.assertConnection = function() {
