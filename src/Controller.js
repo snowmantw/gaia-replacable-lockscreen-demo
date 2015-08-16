@@ -4,9 +4,11 @@ import { Store } from 'src/Store.js';
 export function Controller() {}
 Controller.prototype.start = function() {
   this.SCREEN_TIMEOUT = 30;
+  this._errorCover = null;
   this._waitingTimer = null;
   this._store = new Store();
   this._configFrame = null;
+  this._waitingCover = null;
   this._contentFrame = null;
   this._appInstallZIndex = 1024;
   console.log('>>>> try to launch addon');
@@ -19,7 +21,7 @@ Controller.prototype.start = function() {
       // TODO: should read config here
       resolve();
     })
-//    .then(this.setupEvents.bind(this)).then(this.label.bind(this, '>>> launching'))
+    .then(this.setupEvents.bind(this)).then(this.label.bind(this, '>>> launching'))
     .then(this.waitLockScreen.bind(this)).then(this.label.bind(this, '>>> wait lockscreen done'))
     .then(this.setupElements.bind(this)).then(this.label.bind(this, '>>> set elements done'))
     .then(this.setupGesture.bind(this)).then(this.label.bind(this, '>>> set gesture done'))
@@ -56,6 +58,7 @@ Controller.prototype.setupGesture = function() {
 Controller.prototype.handleEvent = function(evt) {
   switch (evt.type) {
     case 'mozbrowserlocationchange':
+      evt.stopPropagation();
       // TODO: can preview the UI before apply that:
       // add a field in the hash.
       console.log('>>>>>>> locationchanged', evt);
@@ -72,9 +75,26 @@ Controller.prototype.handleEvent = function(evt) {
       } else if (null !== installParsed) {
         this.next(this.onInstall.bind(this, installParsed[1]));
       } else {  // loaded.
+        this.removeWaitingCover();
+        console.log('>>>>> to removeWaiting and open the config');
         this.next(this.onConfigOpened.bind(this));
       }
       break;
+    case 'click':
+      console.log('>>>>>> click event: ', this._waitingCover, this._errorCover);
+      if (this._waitingCover && evt.target === this._waitingCover) {
+        this.elements.browserContainer.removeChild(this._waitingCover);
+        this._waitingCover = null;
+        if (this._configFrame) {
+          this.elements.browserContainer.removeChild(this._configFrame);
+          this._configFrame = null;
+        }
+        return;
+      }
+      if (this._errorCover && evt.target === this._errorCover) {
+        this.elements.browserContainer.removeChild(this._errorCover);
+        this._errorCover = null;
+      }
   }
 };
 
@@ -82,6 +102,7 @@ Controller.prototype.onConfigCommand = function(command) {
   if ('cancel' === command) {
     if (null !== this._configFrame) {
       this.elements.browserContainer.removeChild(this._configFrame);
+      document.querySelector('#statusbar').style.display = 'block';
       this._configFrame = null;
     } else {
       console.log('>>>>>>> cant remove it');
@@ -89,9 +110,11 @@ Controller.prototype.onConfigCommand = function(command) {
   }
 };
 
+
 Controller.prototype.onInstall = function(strprogress) {
   var progress = JSON.parse(decodeURIComponent(strprogress));
   var dialog;
+  console.log('>>>>>>>> onInstall: ', progress);
   if ('start' === progress.stage) {
     dialog = document.querySelector('#app-install-dialog');
     if (!dialog) {
@@ -105,7 +128,26 @@ Controller.prototype.onInstall = function(strprogress) {
       throw new Error('no install dialog after installing');
     }
     dialog.style.zIndex = this._appInstallZIndex;
+    // XXX: can't invoke an app just after install it.
+    // I suspect it's a bug but I don't have better way to do that.
+    this.tryDelayInvoke(progress.name);
   }
+};
+
+Controller.prototype.tryDelayInvoke = function(name) {
+  setTimeout(() => {
+    console.log('>>>>>> progress invoke installed: name: ', name);
+    console.log('>>>>>> delay invoke: ');
+    try {
+      this.invokeInstalled(name);
+    } catch(e) {
+      // XXX: can't invoke an app just after install it (~3 or 5 seconds).
+      // I suspect it's a bug but I don't have better way to do that.
+      console.error('>>>>>>> try delay invoke again', name);
+      this.tryDelayInvoke();
+    }
+    console.log('>>>>>> progress done: name: ', name);
+  }, 200);
 };
 
 Controller.prototype.next = function(steps) {
@@ -116,8 +158,14 @@ Controller.prototype.next = function(steps) {
     return step();
   });
   this.queue = this.queue.then(() => {
-    return Promise.all(stepPromises).catch(console.error.bind(console));
-  }).catch(console.error.bind(console));
+    return Promise.all(stepPromises).catch((err) => {
+      console.error('>>>> Error in inner steps', err);
+      throw err;
+    });
+  }).catch((err) => {
+    console.error('>>>> catch error in next', err);
+    throw err;
+  });
   return this;
 };
 
@@ -127,33 +175,43 @@ Controller.prototype.onConfigOpened = function() {
   }
 };
 
+Controller.prototype.invokeInstalled = function(name) {
+  console.log('>>>>>> try to invoke: ', name);
+  return this.fromNameToInstalled(name)
+    .then((appinfo) => {
+      if (appinfo) {
+        this._store.submitDefault(name, true, appinfo);
+        if (this._configFrame) {
+          this.elements.browserContainer.removeChild(this._configFrame);
+          this._configFrame = null;
+        }
+        if (this._contentFrame) {
+          this.elements.browserContainer.removeChild(this._contentFrame);
+          this._contentFrame = null;
+        }
+        this.loadDefault();
+      } else {
+        console.error('No such content: ', name);
+      }
+    })
+    .catch((err) => {
+      console.error(err);
+    });
+};
+
 Controller.prototype.onScreenChange = function(parsed) {
   var screenurl = decodeURIComponent(parsed);
   var local = (null === screenurl.match(/^http/));
   console.log('>>>>> onScreenChange: ', parsed, local, screenurl);
   if (local) {
     var name = screenurl;
-    this.fromNameToInstalled(name)
-      .then((appinfo) => {
-        if (appinfo) {
-          this._store.submitDefault(name, local, appinfo);
-          if (this._configFrame) {
-            this.elements.browserContainer.removeChild(this._configFrame);
-            this._configFrame = null;
-          }
-          if (this._contentFrame) {
-            this.elements.browserContainer.removeChild(this._contentFrame);
-            this._contentFrame = null;
-          }
-          this.loadDefault();
-        } else {
-          console.error('No such content: ', screenurl);
-        }
-      });
+    this.invokeInstalled(name);
+    document.querySelector('#statusbar').style.display = 'block';
   } else {
     this._store.submitDefault(screenurl, local);
     if (this._configFrame) {
       this.elements.browserContainer.removeChild(this._configFrame);
+      document.querySelector('#statusbar').style.display = 'block';
       this._configFrame = null;
     }
     if (this._contentFrame) {
@@ -169,38 +227,70 @@ Controller.prototype.onWaintingScreenTimeout = function() {
 };
 
 Controller.prototype.showWaitingCover = function() {
-  console.log('>>>>>> showWaitingCover');
+  return Promise.resolve().then(() => {
+    console.log('>>>>>> showWaitingCover');
+    var cover = document.createElement('div');
+    cover.textContent = 'Waiting...';
+    cover.id = 'foxnob-waiting-cover';
+    cover.style.position = 'fixed';
+    cover.style.zIndex = '65538';
+    cover.style.justifyContent = 'center';
+    cover.style.alignItems = 'center';
+    cover.style.display = 'flex';
+    cover.style.width = '100%';
+    cover.style.height = '100%';
+    cover.style.background = 'wheat';
+    cover.style.color = '#333333';
+    cover.style.fontSize = '4rem';
+    this._waitingCover = cover;
+    this.elements.browserContainer.appendChild(cover);
+  });
+};
+
+Controller.prototype.removeWaitingCover = function() {
+  return Promise.resolve().then(() => {
+    this.elements.browserContainer.removeChild(this._waitingCover);
+    this._waitingCover = null;
+  });
 };
 
 Controller.prototype.onOpenConfig = function() {
   console.log('>>>>>>>>> onOpenConfig');
   var url = 'https://foxknob.herokuapp.com/#';
-  this.next(this.showWaitingCover.bind(this))
-      .next(() => {
-        console.log('>>>>>> assertConnection');
-        return this.assertConnection().catch(() => {
-          this.promptNoConnection(url);
-        });
-      })
-      .next(() => {
-        console.log('>>>>> open config create frame', this._configFrame);
-        if (this._configFrame) {
-          this.elements.browserContainer.removeChild(this._configFrame);
-          this._configFrame = null;
-        }
-        this._waitingTimer =
-          setTimeout(this.onWaintingScreenTimeout, this.SCREEN_TIMEOUT);
-        console.log('>>>>> set timeout');
-        var iframe = this.createScreenFrame();
-        iframe.classList.add('foxnob-config');
-        iframe.style.zIndex = '65535';
-        iframe.src = url;
-        this._configFrame = iframe;
-        console.log('>>>>> append');
-        this.elements.browserContainer.appendChild(iframe);
-        iframe.addEventListener('mozbrowserlocationchange', this);
-        console.log('>>>>> done');
-      });
+  this.next(() => {
+    return this.assertConnection().then((result) => {
+      console.log('>>>>>>> assert connection successed', result);
+    }).catch((err) => {
+      console.log('>>>>>> onOpenConfig in connection error');
+      this.promptNoConnection(url);
+      throw err;
+    });
+  })
+  .next(this.showWaitingCover.bind(this))
+  .next(() => {
+    return Promise.resolve().then(() => {
+      console.log('>>>>> open config create frame', this._configFrame);
+      if (this._configFrame) {
+        // Remove the old config frame.
+        this.elements.browserContainer.removeChild(this._configFrame);
+        this._configFrame = null;
+      }
+      this._waitingTimer =
+        setTimeout(this.onWaintingScreenTimeout, this.SCREEN_TIMEOUT);
+      console.log('>>>>> set timeout');
+      var iframe = this.createScreenFrame();
+      iframe.classList.add('foxnob-config');
+      iframe.style.zIndex = '65535';
+      iframe.src = url;
+      document.querySelector('#statusbar').style.display = 'none';
+      this._configFrame = iframe;
+      console.log('>>>>> append');
+      this.elements.browserContainer.appendChild(iframe);
+      console.log('>>>>>> add event listener location now');
+      iframe.addEventListener('mozbrowserlocationchange', this);
+      console.log('>>>>> done');
+    });
+  });
 };
 
 Controller.prototype.createScreenFrame = function() {
@@ -213,7 +303,22 @@ Controller.prototype.createScreenFrame = function() {
 };
 
 Controller.prototype.promptNoConnection = function(url) {
-  console.error('No Internet Connection for the Screen: ', url);
+  console.log('>>>>>> no connection');
+  var cover = document.createElement('div');
+  cover.textContent = 'No Connection! [x]';
+  cover.id = 'foxnob-waiting-cover';
+  cover.style.position = 'fixed';
+  cover.style.zIndex = '65538';
+  cover.style.justifyContent = 'center';
+  cover.style.alignItems = 'center';
+  cover.style.display = 'flex';
+  cover.style.width = '100%';
+  cover.style.height = '100%';
+  cover.style.background = 'wheat';
+  cover.style.color = '#333333';
+  cover.style.fontSize = '2rem';
+  this._errorCover = cover;
+  this.elements.browserContainer.appendChild(cover);
 };
 
 Controller.prototype.loadDefault = function() {
@@ -247,14 +352,27 @@ Controller.prototype.fromNameToInstalled = function(name) {
   return navigator.mozApps.mgmt.getAll()
     .then((apps) => {
       return apps.filter((app) => {
-        return (name === app.manifest.name);
+        if (app.manifest) {
+          return (name === app.manifest.name);
+        } else {
+          return false;
+        }
       })[0];
     });
 };
 
 Controller.prototype.assertConnection = function() {
-  // TODO
-  return Promise.resolve();
+  var lock = navigator.mozSettings.createLock();
+  var wifi = lock.get('wifi.enabled').then((r) => { return r['wifi.enabled'];});
+  var rildata = lock.get('ril.data.enabled').then((r) => { return r['ril.data.enabled'];});
+  return Promise.all([wifi, rildata]).then((rs) => {
+    if (rs[0] || rs[1]) {
+      return true;
+    } else {
+      console.error('No connection: ', rs[0], rs[1]);
+      throw new Error('No connection: ');
+    }
+  });
 };
 
 Controller.prototype.loadDummyScreenLeft = function() {
@@ -293,8 +411,9 @@ Controller.prototype.waitLockScreen = function() {
 };
 
 Controller.prototype.setupEvents = function() {
-  navigator.mozApps.mgmt.addEventListener('enabledstatechange', this);
-  navigator.mozApps.mgmt.addEventListener('uninstall', this);
+  //navigator.mozApps.mgmt.addEventListener('enabledstatechange', this);
+  //navigator.mozApps.mgmt.addEventListener('uninstall', this);
+  window.addEventListener('click', this);
 };
 
 Controller.prototype.setupElements = function() {
