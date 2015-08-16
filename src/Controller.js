@@ -8,6 +8,7 @@ Controller.prototype.start = function() {
   this._store = new Store();
   this._configFrame = null;
   this._contentFrame = null;
+  this._appInstallZIndex = 1024;
   console.log('>>>> try to launch addon');
   // TODO: 1. if we have settings to know how many LSW could be injected,
   //          read it here.
@@ -62,11 +63,14 @@ Controller.prototype.handleEvent = function(evt) {
       var hash = url.replace(/^.*#/, '');
       var screenNameParsed = hash.match(/screenname-(.*)/);
       var commandParsed = hash.match(/command-(.*)/);
+      var installParsed = hash.match(/install-(.*)/);
       console.log('>>>>>> url:', url, hash, screenNameParsed, commandParsed);
       if (null !== screenNameParsed) {
         this.next(this.onScreenChange.bind(this, screenNameParsed[1]));
       } else if(null !== commandParsed) {
         this.next(this.onConfigCommand.bind(this, commandParsed[1]));
+      } else if (null !== installParsed) {
+        this.next(this.onInstall.bind(this, installParsed[1]));
       } else {  // loaded.
         this.next(this.onConfigOpened.bind(this));
       }
@@ -82,6 +86,25 @@ Controller.prototype.onConfigCommand = function(command) {
     } else {
       console.log('>>>>>>> cant remove it');
     }
+  }
+};
+
+Controller.prototype.onInstall = function(strprogress) {
+  var progress = JSON.parse(decodeURIComponent(strprogress));
+  var dialog;
+  if ('start' === progress.stage) {
+    dialog = document.querySelector('#app-install-dialog');
+    if (!dialog) {
+      throw new Error('no install dialog while installing');
+    }
+    this._appInstallZIndex = dialog.style.zIndex;
+    dialog.style.zIndex = 65537;
+  } else if ('done' === progress.stage || 'error' === progress.stage) {
+    dialog = document.querySelector('#app-install-dialog');
+    if (!dialog) {
+      throw new Error('no install dialog after installing');
+    }
+    dialog.style.zIndex = this._appInstallZIndex;
   }
 };
 
