@@ -4,6 +4,8 @@ import { Store } from 'src/Store.js';
 export function Controller() {}
 Controller.prototype.start = function() {
   this.SCREEN_TIMEOUT = 30;
+  this._retryTime = 0;
+  this._retryMax = 15;
   this._errorCover = null;
   this._waitingTimer = null;
   this._store = new Store();
@@ -107,9 +109,36 @@ Controller.prototype.onConfigCommand = function(command) {
     } else {
       console.log('>>>>>>> cant remove it');
     }
+  } else if ('reset' === command) {
+    this.onReset();
   }
 };
 
+Controller.prototype.removeConfigFrame = function() {
+  if (null !== this._configFrame) {
+    this.elements.browserContainer.removeChild(this._configFrame);
+    this._configFrame = null;
+  }
+};
+
+Controller.prototype.removeContentFrame = function() {
+  if (null !== this._contentFrame) {
+    this.elements.browserContainer.removeChild(this._contentFrame);
+    this._contentFrame = null;
+  }
+};
+
+Controller.prototype.resetStatusbar = function() {
+  document.querySelector('#statusbar').style.display = 'block';
+};
+
+Controller.prototype.onReset = function() {
+  console.log('>>>>>> reset start');
+  this.removeContentFrame();
+  this.removeConfigFrame();
+  this.resetStatusbar();
+  console.log('>>>>>> reset stopped');
+};
 
 Controller.prototype.onInstall = function(strprogress) {
   var progress = JSON.parse(decodeURIComponent(strprogress));
@@ -135,19 +164,23 @@ Controller.prototype.onInstall = function(strprogress) {
 };
 
 Controller.prototype.tryDelayInvoke = function(name) {
-  setTimeout(() => {
-    console.log('>>>>>> progress invoke installed: name: ', name);
-    console.log('>>>>>> delay invoke: ');
-    try {
-      this.invokeInstalled(name);
-    } catch(e) {
+  console.log('>>>>>>> try delay invoke');
+  this.invokeInstalled(name).then(() => {
+    console.log('>>>>>> progress delay invoke done: name: ', name);
+    this._retryTime = 0;
+  }).catch((err) => {
+    if (this._retryTime > this._retryMax) {
+      throw new Error('Can\'t invoke the app ' + name +
+        ' after ' + this._retryMax + ' times');
+    }
+    this._retryTime += 1;
+    setTimeout(() => {
       // XXX: can't invoke an app just after install it (~3 or 5 seconds).
       // I suspect it's a bug but I don't have better way to do that.
-      console.error('>>>>>>> try delay invoke again', name);
-      this.tryDelayInvoke();
-    }
-    console.log('>>>>>> progress done: name: ', name);
-  }, 200);
+      console.error('Retry due to: ', err);
+      this.tryDelayInvoke(name);
+    }, 200);
+  });
 };
 
 Controller.prototype.next = function(steps) {
@@ -191,11 +224,12 @@ Controller.prototype.invokeInstalled = function(name) {
         }
         this.loadDefault();
       } else {
-        console.error('No such content: ', name);
+        throw new Error('No such content: ', name);
       }
     })
     .catch((err) => {
       console.error(err);
+      throw err;
     });
 };
 
